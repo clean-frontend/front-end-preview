@@ -3,7 +3,10 @@ name: PR Docker Deploy
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
-
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 # Глобальные переменные окружения
 env:
   REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru/front-end

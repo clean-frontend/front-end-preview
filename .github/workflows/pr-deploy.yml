@@ -9,6 +9,7 @@ permissions:
   issues: write
 # Глобальные переменные окружения
 env:
+  REGISTRY_BASE: 1b856e48-humble-bittern.registry.twcstorage.ru
   REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru/front-end
   REGISTRY_USERNAME: 1b856e48-humble-bittern
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
@@ -125,3 +126,18 @@ jobs:
             docker stop ${{ env.APP_NAME }} || true
             docker rm ${{ env.APP_NAME }} || true
             docker image prune -f || true
+
+      - name: Prepare regctl
+        run: |
+          curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o regctl
+          chmod +x regctl
+          ./regctl version
+          ./regctl registry login ${{ env.REGISTRY_BASE }} \
+            --user ${{ env.REGISTRY_USERNAME }} \
+            --pass ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Cleanup old images
+        run: |
+          DIGEST=$(./regctl image digest ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}) || exit 0
+          ./regctl image rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST} || true
+          echo "Old image removed"

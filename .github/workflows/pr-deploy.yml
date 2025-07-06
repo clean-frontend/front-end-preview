@@ -96,6 +96,7 @@ jobs:
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
 
       - name: Comment PR with deploy URL
+        if: github.event.action == 'opened'
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

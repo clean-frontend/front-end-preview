@@ -7,7 +7,7 @@ export default function Home() {
 
   return (
     <div>
-      Some changes 4 Server api url: {serverApiUrl}
+      Some changes 5 Server api url: {serverApiUrl}
       <ClientComponent />
     </div>
   );

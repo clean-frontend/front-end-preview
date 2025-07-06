@@ -26,11 +26,9 @@ jobs:
 
       - name: Common environment variables
         run: |
-          cat <<EOF >> .env.local
-            NEXT_PUBLIC_API_URL=/api
-            NEXT_PUBLIC_URL=http://preview-paromov.ru
-            API_URL=http://api.preview-paromov.ru
-          EOF
+          echo "NEXT_PUBLIC_API_URL=/api" >> .env.local
+          echo "NEXT_PUBLIC_URL=http://preview-paromov.ru" >> .env.local
+          echo "API_URL=http://api.preview-paromov.ru" >> .env.local
 
       # Настройка Docker Buildx для эффективной сборки
       - name: Set up Docker Buildx
@@ -87,6 +85,7 @@ jobs:
               --name $NEW_NAME \
               --restart unless-stopped \
               --network proxy \
+              --env-file .env.local \
               --label "traefik.enable=true" \
               --label "traefik.http.routers.${{ env.IMAGE_NAME }}.rule=Host(\`preview-paromov.ru\`)" \
               --label "traefik.http.routers.${{ env.IMAGE_NAME }}.entrypoints=websecure" \

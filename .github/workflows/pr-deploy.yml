@@ -1,9 +1,8 @@
 name: PR Docker Deploy
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
 
 # Глобальные переменные окружения
 env:
@@ -14,9 +13,11 @@ env:
   SSH_HOST: preview-paromov.ru
   SSH_USERNAME: root
   SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+  APP_NAME: next-pr-${{ github.event.pull_request.number }}
 jobs:
   # Задача сборки и загрузки Docker образа для PR
   build-and-push:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
 
     steps:
@@ -27,7 +28,7 @@ jobs:
       - name: Common environment variables
         run: |
           echo "NEXT_PUBLIC_API_URL=/api" >> .env.local
-          echo "NEXT_PUBLIC_URL=http://preview-paromov.ru" >> .env.local
+          echo "NEXT_PUBLIC_URL=http://${{ env.APP_NAME }}.preview-paromov.ru" >> .env.local
           echo "API_URL=http://api.preview-paromov.ru" >> .env.local
 
       # Настройка Docker Buildx для эффективной сборки
@@ -75,46 +76,22 @@ jobs:
           key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
             docker login ${{ env.REGISTRY }} -u ${{ env.REGISTRY_USERNAME }} -p ${{ env.REGISTRY_PASSWORD }}
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.APP_NAME }}
             # Запуск нового контейнера с Traefik labels
 
-            NEW_NAME=${{ env.IMAGE_NAME }}-${{ github.ref_name }}-new
-            BASE_NAME=${{ env.IMAGE_NAME }}-${{ github.ref_name }}
+            docker stop ${{ env.APP_NAME }} || true
+            docker rm ${{ env.APP_NAME }} || true
+            docker image prune -f || true
 
             docker run -d \
-              --name $NEW_NAME \
+              --name ${{ env.APP_NAME }} \
               --restart unless-stopped \
               --network proxy \
+              
               --label "traefik.enable=true" \
-              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.rule=Host(\`preview-paromov.ru\`)" \
-              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.entrypoints=websecure" \
-              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.tls=true" \
-              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.tls.certresolver=letsencrypt" \
-              --label "traefik.http.services.${{ env.IMAGE_NAME }}.loadbalancer.server.port=3000" \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
-
-            # Ждём, пока контейнер станет healthy (до 60 секунд)
-            for i in {1..30}; do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' $NEW_NAME 2>/dev/null || echo "starting")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "Контейнер $NEW_NAME healthy!"
-
-                docker stop $BASE_NAME || true
-                docker rm $BASE_NAME || true
-                docker rename $NEW_NAME $BASE_NAME || true
-                docker image prune -f || true
-
-                break
-              fi
-              if [ "$STATUS" = "unhealthy" ]; then
-                echo "Контейнер $NEW_NAME unhealthy!" >&2
-                docker logs $NEW_NAME >&2
-
-                docker stop $NEW_NAME || true
-                docker rm $NEW_NAME || true
-
-                exit 1
-              fi
-              echo "Ожидание healthcheck... ($i)"
-              sleep 2
-            done
+              --label "traefik.http.routers.${{ env.APP_NAME }}.rule=Host(\`${{ env.APP_NAME }}.preview-paromov.ru\`)" \
+              --label "traefik.http.routers.${{ env.APP_NAME }}.entrypoints=websecure" \
+              --label "traefik.http.routers.${{ env.APP_NAME }}.tls=true" \
+              --label "traefik.http.routers.${{ env.APP_NAME }}.tls.certresolver=letsencrypt" \
+              --label "traefik.http.services.${{ env.APP_NAME }}.loadbalancer.server.port=3000" \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.APP_NAME }}

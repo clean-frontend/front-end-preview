@@ -9,6 +9,7 @@ permissions:
   issues: write
 # Глобальные переменные окружения
 env:
+  REGISTRY_BASE: 1b856e48-humble-bittern.registry.twcstorage.ru
   REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru/front-end
   REGISTRY_USERNAME: 1b856e48-humble-bittern
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
@@ -131,7 +132,7 @@ jobs:
           curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o regctl
           chmod +x regctl
           ./regctl version
-          ./regctl registry login ${{ env.REGISTRY }} \
+          ./regctl registry login ${{ env.REGISTRY_BASE }} \
             --user ${{ env.REGISTRY_USERNAME }} \
             --pass ${{ env.REGISTRY_PASSWORD }}
 

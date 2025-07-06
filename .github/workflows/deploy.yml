@@ -7,10 +7,10 @@ on:
 
 # Глобальные переменные окружения
 env:
-  REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru
+  REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru/front-end
   REGISTRY_USERNAME: 1b856e48-humble-bittern
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-  IMAGE_NAME: front-end/next-image
+  IMAGE_NAME: next-image
   SSH_HOST: preview-paromov.ru
   SSH_USERNAME: root
   SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}

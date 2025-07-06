@@ -1,0 +1,121 @@
+name: PR Docker Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+# Глобальные переменные окружения
+env:
+  REGISTRY: 1b856e48-humble-bittern.registry.twcstorage.ru
+  REGISTRY_USERNAME: 1b856e48-humble-bittern
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  IMAGE_NAME: front-end/next-image
+  SSH_HOST: preview-paromov.ru
+  SSH_USERNAME: root
+  SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+jobs:
+  # Задача сборки и загрузки Docker образа для PR
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Клонирование репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Common environment variables
+        run: |
+          cat <<EOF >> .env.local
+            NEXT_PUBLIC_API_URL=/api
+            NEXT_PUBLIC_URL=http://preview-paromov.ru
+            API_URL=http://api.preview-paromov.ru
+          EOF
+
+      # Настройка Docker Buildx для эффективной сборки
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Авторизация в Container Registry
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      # Извлечение метаданных для тегирования образа
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      # Сборка и загрузка Docker образа
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.spa
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  # Задача деплоя PR на сервер с Traefik
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      # Деплой PR на сервер
+      - name: Deploy PR to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USERNAME }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          script: |
+            docker login ${{ env.REGISTRY }} -u ${{ env.REGISTRY_USERNAME }} -p ${{ env.REGISTRY_PASSWORD }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            # Запуск нового контейнера с Traefik labels
+
+            NEW_NAME=${{ env.IMAGE_NAME }}-${{ github.ref_name }}-new
+            BASE_NAME=${{ env.IMAGE_NAME }}-${{ github.ref_name }}
+
+            docker run -d \
+              --name $NEW_NAME \
+              --restart unless-stopped \
+              --network proxy \
+              --label "traefik.enable=true" \
+              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.rule=Host(\`preview-paromov.ru\`)" \
+              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.entrypoints=websecure" \
+              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.tls=true" \
+              --label "traefik.http.routers.${{ env.IMAGE_NAME }}.tls.certresolver=letsencrypt" \
+              --label "traefik.http.services.${{ env.IMAGE_NAME }}.loadbalancer.server.port=3000" \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+
+            # Ждём, пока контейнер станет healthy (до 60 секунд)
+            for i in {1..30}; do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' $NEW_NAME 2>/dev/null || echo "starting")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "Контейнер $NEW_NAME healthy!"
+                break
+              fi
+              if [ "$STATUS" = "unhealthy" ]; then
+                echo "Контейнер $NEW_NAME unhealthy!" >&2
+                docker logs $NEW_NAME >&2
+
+                docker stop $NEW_NAME || true
+                docker rm $NEW_NAME || true
+
+                exit 1
+              fi
+              echo "Ожидание healthcheck... ($i)"
+              sleep 2
+            done
+
+            docker stop $BASE_NAME || true
+            docker rm $BASE_NAME || true
+            docker rename $NEW_NAME $BASE_NAME
+            docker image prune -f || true
